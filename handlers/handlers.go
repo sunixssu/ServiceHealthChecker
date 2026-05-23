@@ -88,6 +88,7 @@ func HandleHealth(w http.ResponseWriter, r *http.Request) {
 		wgHealth.Add(1)
 		go SendRequest(req, &wgHealth, client, make(chan int, 1))
 		wgHealth.Wait()
+		wg.Wait()
 		counter++
 
 		ws.WriteMessage(websocket.TextMessage, []byte("Request #"+strconv.Itoa(counter)+" was successfull, waiting "+duration_str+" seconds..."))
