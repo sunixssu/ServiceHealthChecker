@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 )
 
@@ -22,7 +23,12 @@ import (
 
 var strg storage.Storage = *storage.NewStorage()
 var wg sync.WaitGroup
+var wgHealth sync.WaitGroup
 var maximum_goroutines_amount_str string
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
 
 func SendRequest(req *http.Request, wg *sync.WaitGroup, client *http.Client, ch chan int) {
 	defer func() {
@@ -61,12 +67,32 @@ func HandleHealth(w http.ResponseWriter, r *http.Request) {
 	if err := godotenv.Load("data.env"); err != nil {
 		fmt.Println("Error loading data.env")
 	}
-	/*
-		duration_str := os.Getenv("PERIOD")
-		duration_int, err := strconv.Atoi(duration_str)
-	*/
+	duration_str := os.Getenv("PERIOD")
+	duration_int, err := strconv.Atoi(duration_str)
 
-	// Пробовать через WebSocket?
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		fmt.Println("Error connecting to WebSocket:", err)
+		return
+	}
+	ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+	defer ws.Close()
+
+	counter := 0
+	for {
+		client := &http.Client{}
+		req, err := http.NewRequest("GET", "http://localhost:8080/healthSingle", nil)
+		if err != nil {
+			fmt.Println("Error trying to create a new request")
+		}
+		wgHealth.Add(1)
+		go SendRequest(req, &wgHealth, client, make(chan int, 1))
+		wgHealth.Wait()
+		counter++
+
+		ws.WriteMessage(websocket.TextMessage, []byte("Request #"+strconv.Itoa(counter)+" was successfull, waiting "+duration_str+" seconds..."))
+		time.Sleep(time.Duration(duration_int * int(time.Second)))
+	}
 }
 
 func HandleHealthSingle(w http.ResponseWriter, r *http.Request) {
