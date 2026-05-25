@@ -27,14 +27,6 @@ func NewEnvironmentData(a string, m int, p int) *EnvironmentData {
 	}
 }
 
-type UrlDTO struct {
-	url string
-}
-
-func NewUrlDTO(url string) *UrlDTO {
-	return &UrlDTO{url: url}
-}
-
 var strg storage.Storage = *storage.NewStorage()
 
 var upgrader = websocket.Upgrader{
@@ -54,10 +46,14 @@ func (ed EnvironmentData) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	duration_str := strconv.Itoa(duration_int)
 	addresses := ed.Addresses
 	addresses_array := strings.Split(addresses, ",")
+	if len(addresses_array) == 0 {
+		http.Error(w, storage.EmptyAddressList, http.StatusBadRequest)
+	}
 
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		fmt.Println("Error connecting to WebSocket:", err)
+		http.Error(w, storage.ErrConnectingToWS, http.StatusInternalServerError)
+		//fmt.Println("Error connecting to WebSocket:", err)
 		return
 	}
 	ws.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -68,10 +64,7 @@ func (ed EnvironmentData) HandleHealth(w http.ResponseWriter, r *http.Request) {
 
 		wgAllURLsCheckWasFinished.Add(1)
 
-		//go RunHealthCheck(w, r, ed.Max_Goroutines, &wgAllURLsCheckWasFinished, make(chan int, 1), addresses_array)
-		go CheckAllURLsFromDataCycle(addresses_array, make(chan int, ed.Max_Goroutines), &wgAllURLsCheckWasFinished)
-
-		wgAllURLsCheckWasFinished.Wait()
+		CheckAllURLsFromDataCycle(addresses_array, make(chan int, ed.Max_Goroutines), &wgAllURLsCheckWasFinished, true)
 
 		counter++
 
@@ -82,46 +75,49 @@ func (ed EnvironmentData) HandleHealth(w http.ResponseWriter, r *http.Request) {
 
 // Эта функция для проверки всего списка функций из data.env, для КАЖДОЙ ссылки вызывается проверка. Вызывается /send
 func (ed EnvironmentData) HandleHealthSingle(w http.ResponseWriter, r *http.Request) {
+	var wgAllURLsCheckWasFinished sync.WaitGroup
+
 	maximum_goroutines_amount := ed.Max_Goroutines
 	chMaxGrts := make(chan int, maximum_goroutines_amount)
 
 	addresses := ed.Addresses
 	addresses_array := strings.Split(addresses, ",")
 
-	CheckAllURLsFromDataCycleNoWG(addresses_array, chMaxGrts)
+	wgAllURLsCheckWasFinished.Add(1)
+
+	CheckAllURLsFromDataCycle(addresses_array, chMaxGrts, &wgAllURLsCheckWasFinished, true)
+
+	wgAllURLsCheckWasFinished.Wait()
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("All URLs were successfully tested"))
 }
 
 // Эта функция проверяет весь список URL из data.env, для каждой ссылки вызывается проверка. И еще отметку делает
-func CheckAllURLsFromDataCycle(array_of_addresses []string, chMaxGrts chan int, wgAllURLsFinished *sync.WaitGroup) {
-	CheckAllURLsFromDataCycleNoWG(array_of_addresses, chMaxGrts)
-	wgAllURLsFinished.Done()
-}
-
-// Функция для проверки всех URL, но она не отмечает, что проверка окончена. Нужно только для /healthSingle
-func CheckAllURLsFromDataCycleNoWG(array_of_addresses []string, chMaxGrts chan int) {
+func CheckAllURLsFromDataCycle(array_of_addresses []string, chMaxGrts chan int, wgAllURLsFinished *sync.WaitGroup, flag bool) {
 	var wgMaxGrts sync.WaitGroup
 	for _, url := range array_of_addresses {
 		wgMaxGrts.Add(1)
 		chMaxGrts <- 1
 
-		urlDTO := NewUrlDTO(url)
-		go urlDTO.SendReqToURL(&wgMaxGrts, chMaxGrts)
+		go SendReqToURL(&wgMaxGrts, chMaxGrts, url)
 	}
 	wgMaxGrts.Wait()
+	if flag {
+		wgAllURLsFinished.Done()
+	}
 }
 
 // Эта функция для проверки ОДНОЙ ссылки из data.env, на проверку ее ответа.
-func (u UrlDTO) SendReqToURL(wg *sync.WaitGroup, chMaxGrts chan int) {
-	var url string
+func SendReqToURL(wg *sync.WaitGroup, chMaxGrts chan int, url string) {
 	var lst storage.Statuslist = *storage.NewStatuslist()
 
-	url = u.url
-
 	fmt.Println("Я получил ссылку:", url)
-	resp, err := http.Get(url)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	req, err := http.NewRequest("GET", url, nil)
+	resp, err := client.Do(req)
 	if err != nil {
 		now := time.Now().Format("2006-01-02 15:04:05")
 		fmt.Println("Пытаюсь записать", url)
@@ -143,7 +139,8 @@ func (u UrlDTO) SendReqToURL(wg *sync.WaitGroup, chMaxGrts chan int) {
 func HandleGetStatus(w http.ResponseWriter, r *http.Request) {
 	data, err := json.MarshalIndent(strg, "", "    ")
 	if err != nil {
-		fmt.Println("Error converting storage to JSON")
+		//fmt.Println("Error converting storage to JSON")
+		http.Error(w, storage.ErrConvertingToJSON, http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
