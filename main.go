@@ -45,7 +45,6 @@ func main() {
 
 	r.HandleFunc("/health", envData.HandleHealth)
 	r.HandleFunc("/healthSingle", envData.HandleHealthSingle)
-	r.HandleFunc("/send", handlers.HandleSend)
 	r.HandleFunc("/status", handlers.HandleGetStatus)
 	http.Handle("/", r)
 
