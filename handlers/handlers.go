@@ -7,19 +7,27 @@ import (
 	"healthChecker/storage"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/joho/godotenv"
 )
 
-/*
-Программа отправляет запрос на сайт, получает статус код
-*/
+type EnvironmentData struct {
+	Addresses      string
+	Max_Goroutines int
+	Period         int
+}
+
+func NewEnvironmentData(a string, m int, p int) *EnvironmentData {
+	return &EnvironmentData{
+		Addresses:      a,
+		Max_Goroutines: m,
+		Period:         p,
+	}
+}
 
 var strg storage.Storage = *storage.NewStorage()
 var wg sync.WaitGroup
@@ -29,6 +37,7 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 }
+var mtx sync.Mutex
 
 func SendRequest(req *http.Request, wg *sync.WaitGroup, client *http.Client, ch chan int) {
 	defer func() {
@@ -63,12 +72,9 @@ func LoopServeHealth(w http.ResponseWriter, r *http.Request, delay int) {
 	}
 }
 
-func HandleHealth(w http.ResponseWriter, r *http.Request) {
-	if err := godotenv.Load("data.env"); err != nil {
-		fmt.Println("Error loading data.env")
-	}
-	duration_str := os.Getenv("PERIOD")
-	duration_int, err := strconv.Atoi(duration_str)
+func (ed EnvironmentData) HandleHealth(w http.ResponseWriter, r *http.Request) {
+	duration_int := ed.Period
+	duration_str := strconv.Itoa(duration_int)
 
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -80,6 +86,7 @@ func HandleHealth(w http.ResponseWriter, r *http.Request) {
 
 	counter := 0
 	for {
+
 		client := &http.Client{}
 		req, err := http.NewRequest("GET", "http://localhost:8080/healthSingle", nil)
 		if err != nil {
@@ -88,6 +95,7 @@ func HandleHealth(w http.ResponseWriter, r *http.Request) {
 		wgHealth.Add(1)
 		go SendRequest(req, &wgHealth, client, make(chan int, 1))
 		wgHealth.Wait()
+
 		wg.Wait()
 		counter++
 
@@ -96,24 +104,12 @@ func HandleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func HandleHealthSingle(w http.ResponseWriter, r *http.Request) {
-	if err := godotenv.Load("data.env"); err != nil {
-		fmt.Println("Error loading data.env")
-	}
-	maximum_goroutines_amount_str = os.Getenv("MAX_GOROUTINES")
-	maximum_goroutines_amount, err := strconv.Atoi(maximum_goroutines_amount_str)
-
-	if err != nil {
-		fmt.Println("Error converting string to int")
-	}
+func (ed EnvironmentData) HandleHealthSingle(w http.ResponseWriter, r *http.Request) {
+	maximum_goroutines_amount := ed.Max_Goroutines
 	ch := make(chan int, maximum_goroutines_amount)
 
-	err = godotenv.Load("data.env")
-	if err != nil {
-		fmt.Println("Error. Can't load data.env...")
-	}
-	addresses := os.Getenv("ADDRESSES")              // получили строку из data.env
-	addresses_array := strings.Split(addresses, ",") // массив из ссылок, которые надо чекнуть
+	addresses := ed.Addresses
+	addresses_array := strings.Split(addresses, ",")
 
 	for _, url := range addresses_array {
 		wg.Add(1)
@@ -154,7 +150,9 @@ func HandleSend(w http.ResponseWriter, r *http.Request) {
 		lst.AddStatus(url, status, resp.Status[4:], now)
 		fmt.Println("Успешно записал", url)
 	}
+	mtx.Lock()
 	strg.AddRequest(lst)
+	mtx.Unlock()
 }
 
 func HandleGetStatus(w http.ResponseWriter, r *http.Request) {
