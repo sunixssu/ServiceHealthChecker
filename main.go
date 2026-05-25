@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -24,8 +26,25 @@ func main() {
 		Handler: r,
 	}
 
-	r.HandleFunc("/health", handlers.HandleHealth)
-	r.HandleFunc("/healthSingle", handlers.HandleHealthSingle)
+	if err := godotenv.Load("data.env"); err != nil {
+		fmt.Println(err)
+	}
+	var err error
+	var addresses_env string = os.Getenv("ADDRESSES")
+	var max_grts_env int
+	var period_env int
+	if max_grts_env, err = strconv.Atoi(os.Getenv("MAX_GOROUTINES")); err != nil {
+		fmt.Println("Error, can't convert string to int")
+		return
+	}
+	if period_env, err = strconv.Atoi(os.Getenv("PERIOD")); err != nil {
+		fmt.Println("Error, can't convert string to int")
+		return
+	}
+	envData := *handlers.NewEnvironmentData(addresses_env, max_grts_env, period_env)
+
+	r.HandleFunc("/health", envData.HandleHealth)
+	r.HandleFunc("/healthSingle", envData.HandleHealthSingle)
 	r.HandleFunc("/send", handlers.HandleSend)
 	r.HandleFunc("/status", handlers.HandleGetStatus)
 	http.Handle("/", r)
