@@ -48,6 +48,7 @@ func (ed EnvironmentData) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	addresses_array := strings.Split(addresses, ",")
 	if len(addresses_array) == 0 {
 		http.Error(w, storage.EmptyAddressList, http.StatusBadRequest)
+		return
 	}
 
 	ws, err := upgrader.Upgrade(w, r, nil)
@@ -75,7 +76,6 @@ func (ed EnvironmentData) HandleHealth(w http.ResponseWriter, r *http.Request) {
 
 // Эта функция для проверки всего списка функций из data.env, для КАЖДОЙ ссылки вызывается проверка. Вызывается /send
 func (ed EnvironmentData) HandleHealthSingle(w http.ResponseWriter, r *http.Request) {
-	var wgAllURLsCheckWasFinished sync.WaitGroup
 
 	maximum_goroutines_amount := ed.Max_Goroutines
 	chMaxGrts := make(chan int, maximum_goroutines_amount)
@@ -83,11 +83,7 @@ func (ed EnvironmentData) HandleHealthSingle(w http.ResponseWriter, r *http.Requ
 	addresses := ed.Addresses
 	addresses_array := strings.Split(addresses, ",")
 
-	wgAllURLsCheckWasFinished.Add(1)
-
-	CheckAllURLsFromDataCycle(addresses_array, chMaxGrts, &wgAllURLsCheckWasFinished, true)
-
-	wgAllURLsCheckWasFinished.Wait()
+	CheckAllURLsFromDataCycle(addresses_array, chMaxGrts, nil, false)
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("All URLs were successfully tested"))
