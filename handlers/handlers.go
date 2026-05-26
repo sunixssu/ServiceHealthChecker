@@ -46,6 +46,7 @@ func (ed EnvironmentData) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	duration_str := strconv.Itoa(duration_int)
 	addresses := ed.Addresses
 	addresses_array := strings.Split(addresses, ",")
+	chMaxGrts := make(chan int, ed.Max_Goroutines)
 	if len(addresses_array) == 0 {
 		http.Error(w, storage.EmptyAddressList, http.StatusBadRequest)
 		return
@@ -65,7 +66,7 @@ func (ed EnvironmentData) HandleHealth(w http.ResponseWriter, r *http.Request) {
 
 		wgAllURLsCheckWasFinished.Add(1)
 
-		CheckAllURLsFromDataCycle(addresses_array, make(chan int, ed.Max_Goroutines), &wgAllURLsCheckWasFinished, true)
+		CheckAllURLsFromDataCycle(addresses_array, chMaxGrts, &wgAllURLsCheckWasFinished, true)
 
 		counter++
 
@@ -113,6 +114,10 @@ func SendReqToURL(wg *sync.WaitGroup, chMaxGrts chan int, url string) {
 		Timeout: 10 * time.Second,
 	}
 	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		fmt.Println(storage.ErrCreatingNewRequest)
+		return
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		now := time.Now().Format("2006-01-02 15:04:05")
