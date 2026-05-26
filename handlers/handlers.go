@@ -116,6 +116,7 @@ func SendReqToURL(wg *sync.WaitGroup, chMaxGrts chan int, url string) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		fmt.Println(storage.ErrCreatingNewRequest)
+		return
 	}
 	resp, err := client.Do(req)
 	if err != nil {
