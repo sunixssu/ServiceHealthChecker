@@ -64,6 +64,8 @@ func (ed EnvironmentData) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	counter := 0
 	for {
 
+		wgAllURLsCheckWasFinished.Add(1)
+
 		CheckAllURLsFromDataCycle(addresses_array, chMaxGrts, &wgAllURLsCheckWasFinished, true)
 
 		counter++
@@ -127,7 +129,6 @@ func SendReqToURL(wg *sync.WaitGroup, chMaxGrts chan int, url string) {
 		lst.AddStatus(url, status, resp.Status[4:], now)
 		fmt.Println("Успешно записал", url)
 	}
-	resp.Body.Close()
 	mtx.Lock()
 	strg.AddRequest(lst)
 	mtx.Unlock()
